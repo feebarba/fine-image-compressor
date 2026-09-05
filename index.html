@@ -367,6 +367,7 @@
       .secondary-button:disabled { color: var(--muted-2); opacity: 0.5; }
       .folder-button { width: 100%; justify-content: flex-start; }
       .folder-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .folder-preview { overflow: hidden; color: var(--muted-2); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
       .results { min-width: 0; padding: 22px; }
 
@@ -793,6 +794,7 @@
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11Z"/><path d="M3 9h18"/></svg>
                 <span id="folder-name">Escolher pasta</span>
               </button>
+              <span class="folder-preview" id="folder-preview" aria-live="polite">Nenhuma pasta selecionada</span>
             </div>
 
             <div class="switch-row">
@@ -876,6 +878,7 @@
         const outputNameInput = $("#output-name");
         const chooseFolderButton = $("#choose-folder-button");
         const folderName = $("#folder-name");
+        const folderPreview = $("#folder-preview");
         const preserveButton = $("#preserve-dimensions");
         const controlsPanel = document.querySelector(".controls");
         const resultsPanel = document.querySelector(".results");
@@ -928,6 +931,39 @@
           return `${baseName}${suffix}.${outputExtension(type)}`;
         }
 
+        function fileSizeMarkup(item) {
+          const savings = item.outputBlob ? ((1 - item.outputBlob.size / item.file.size) * 100) : 0;
+          return item.outputBlob
+            ? `<span class="size-line"><span>${formatBytes(item.file.size)}</span><span class="size-arrow">→</span><strong>${formatBytes(item.outputBlob.size)}</strong></span><span class="saving ${savings < 0 ? "warning" : ""}">${savings >= 0 ? `−${formatPercent(savings)} de peso` : `+${formatPercent(Math.abs(savings))} de peso`}</span>`
+            : `<span class="size-line"><span>${formatBytes(item.file.size)}</span></span>`;
+        }
+
+        function fileActionMarkup(item, index) {
+          const statusLabel = item.status === "done" ? "Pronta" : item.status === "processing" ? "Comprimindo" : item.status === "error" ? "Erro" : "Aguardando";
+          const statusClass = item.status === "done" ? "done" : item.status === "processing" ? "processing" : item.status === "error" ? "error" : "";
+          const outputName = outputNameFor(item, index, state.files.length, item.outputType || outputTypeFor(item));
+          const action = item.outputBlob ? `<a class="status done" data-download="${item.id}" href="${item.outputUrl}" download="${escapeHtml(outputName)}" aria-label="Baixar ${escapeHtml(outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
+          return `${action}<button class="remove-file" type="button" data-remove="${item.id}" aria-label="Remover ${escapeHtml(item.name)}">${icon.x}</button>`;
+        }
+
+        function findFileRow(item) {
+          return Array.from(queue.querySelectorAll(".file-row")).find((row) => row.dataset.id === item.id);
+        }
+
+        function updateFileRow(item) {
+          const row = findFileRow(item);
+          if (!row) return;
+          const index = state.files.indexOf(item);
+          const preview = row.querySelector(".file-preview");
+          const previewImage = preview?.querySelector("img");
+          if (previewImage) previewImage.src = item.outputUrl || item.previewUrl;
+          preview?.classList.toggle("is-processing", item.status === "processing");
+          const delta = row.querySelector(".file-delta");
+          if (delta) delta.innerHTML = fileSizeMarkup(item);
+          const actions = row.querySelector(".file-actions");
+          if (actions) actions.innerHTML = fileActionMarkup(item, index);
+        }
+
         async function getDownloadDirectory() {
           if (!downloadDirectory) return null;
           let permission = downloadDirectory.queryPermission
@@ -960,7 +996,8 @@
           }
           try {
             downloadDirectory = await window.showDirectoryPicker({ mode: "readwrite" });
-            folderName.textContent = downloadDirectory.name;
+            folderName.textContent = "Trocar pasta";
+            folderPreview.textContent = `Pasta selecionada: ${downloadDirectory.name}`;
             chooseFolderButton.setAttribute("aria-label", `Pasta de download: ${downloadDirectory.name}`);
             showToast(`Pasta selecionada: ${downloadDirectory.name}`);
           } catch (error) {
@@ -1016,24 +1053,15 @@
           const hasFiles = state.files.length > 0;
           dropzone.hidden = false;
           queue.innerHTML = state.files.map((item, index) => {
-            const savings = item.outputBlob ? ((1 - item.outputBlob.size / item.file.size) * 100) : 0;
-            const sizeLine = item.outputBlob
-              ? `<span class="size-line"><span>${formatBytes(item.file.size)}</span><span class="size-arrow">→</span><strong>${formatBytes(item.outputBlob.size)}</strong></span><span class="saving ${savings < 0 ? "warning" : ""}">${savings >= 0 ? `−${formatPercent(savings)} de peso` : `+${formatPercent(Math.abs(savings))} de peso`}</span>`
-              : `<span class="size-line"><span>${formatBytes(item.file.size)}</span></span>`;
-            const statusLabel = item.status === "done" ? "Pronta" : item.status === "processing" ? "Comprimindo" : item.status === "error" ? "Erro" : "Aguardando";
-            const statusClass = item.status === "done" ? "done" : item.status === "processing" ? "processing" : item.status === "error" ? "error" : "";
             const previewUrl = item.outputUrl || item.previewUrl;
-            const outputName = outputNameFor(item, index, state.files.length, item.outputType || outputTypeFor(item));
-            const action = item.outputBlob ? `<a class="status done" data-download="${item.id}" href="${item.outputUrl}" download="${escapeHtml(outputName)}" aria-label="Baixar ${escapeHtml(outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
             return `<article class="file-row" data-id="${item.id}">
               <div class="file-info">
                 <div class="file-preview ${item.status === "processing" ? "is-processing" : ""}"><img src="${previewUrl}" alt="Prévia de ${escapeHtml(item.name)}" /></div>
                 <div class="file-text"><span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span></div>
               </div>
-              <div class="file-delta">${sizeLine}</div>
+              <div class="file-delta">${fileSizeMarkup(item)}</div>
               <div class="file-actions">
-                ${action}
-                <button class="remove-file" type="button" data-remove="${item.id}" aria-label="Remover ${escapeHtml(item.name)}">${icon.x}</button>
+                ${fileActionMarkup(item, index)}
               </div>
             </article>`;
           }).join("");
@@ -1048,7 +1076,7 @@
           syncEmptyPanelHeight();
         }
 
-        function updateSummary() {
+        function updateSummary(announce = true) {
           const total = state.files.length;
           const ready = state.files.filter((item) => item.status === "done");
           const originalBytes = ready.reduce((sum, item) => sum + item.file.size, 0);
@@ -1058,7 +1086,7 @@
           $("#summary-saving").textContent = saving >= 0 ? formatPercent(saving) : `−${formatPercent(Math.abs(saving))}`;
           $("#summary-size").textContent = formatBytes(outputBytes);
           summary.hidden = false;
-          statusMessage.textContent = ready.length === total ? "Tudo pronto para baixar" : `${ready.length} de ${total} em processamento`;
+          if (announce) statusMessage.textContent = ready.length === total ? "Tudo pronto para baixar" : `${ready.length} de ${total} em processamento`;
         }
 
         function addFiles(fileList) {
@@ -1207,7 +1235,7 @@
           item.outputType = null;
           if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
           item.outputUrl = null;
-          render();
+          updateFileRow(item);
           const source = await decodeImage(item.file);
           const type = outputTypeFor(item);
           const targetMB = Math.min(10, Math.max(0.2, Number(targetSizeInput.value) || 2));
@@ -1222,6 +1250,7 @@
           item.outputName = outputNameFor(item, index, total, type);
           item.status = result.blob.size <= targetMB * 1024 * 1024 ? "done" : "error";
           item.settingsKey = currentSettingsKey();
+          updateFileRow(item);
           if (item.status === "error") throw new Error("Não foi possível chegar ao limite definido.");
         }
 
@@ -1237,11 +1266,14 @@
             } catch (error) {
               item.status = "error";
               item.error = error.message;
+              updateFileRow(item);
             }
-            render();
+            updateSummary(false);
+            updateControls();
           }
           state.isProcessing = false;
-          render();
+          updateSummary();
+          updateControls();
           if (state.files.every((item) => item.status === "done")) showToast("Imagens comprimidas com a melhor qualidade possível.");
         }
 
@@ -1398,3 +1430,24 @@
             description: "Read the current visible selection and compression results without changing them.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             annotations: { readOnlyHint: true, untrustedContentHint: false },
+            execute() {
+              const ready = state.files.filter((item) => item.status === "done");
+              const outputBytes = ready.reduce((sum, item) => sum + (item.outputBlob?.size || 0), 0);
+              const originalBytes = ready.reduce((sum, item) => sum + item.file.size, 0);
+              return { total: state.files.length, ready: ready.length, originalBytes, outputBytes, savingsPercent: originalBytes ? Math.round((1 - outputBytes / originalBytes) * 100) : 0 };
+            },
+          });
+          window.addEventListener("pagehide", () => lifecycle.abort(), { once: true });
+        }
+
+        window.addEventListener("beforeunload", () => state.files.forEach((item) => {
+          URL.revokeObjectURL(item.previewUrl);
+          if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
+        }));
+        window.addEventListener("resize", syncEmptyPanelHeight);
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
