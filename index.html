@@ -365,6 +365,8 @@
 
       .secondary-button:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-3); }
       .secondary-button:disabled { color: var(--muted-2); opacity: 0.5; }
+      .folder-button { width: 100%; justify-content: flex-start; }
+      .folder-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
       .results { min-width: 0; padding: 22px; }
 
@@ -785,6 +787,14 @@
               </div>
             </div>
 
+            <div class="field">
+              <label for="choose-folder-button">Pasta de download</label>
+              <button class="secondary-button folder-button" id="choose-folder-button" type="button">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11Z"/><path d="M3 9h18"/></svg>
+                <span id="folder-name">Escolher pasta</span>
+              </button>
+            </div>
+
             <div class="switch-row">
               <div class="switch-copy">
                 <strong>Preservar dimensões</strong>
@@ -850,6 +860,7 @@
           preserveDimensions: true,
           toastTimer: null,
         };
+        let downloadDirectory = null;
 
         const $ = (selector) => document.querySelector(selector);
         const fileInput = $("#file-input");
@@ -863,6 +874,8 @@
         const outputFormat = $("#output-format");
         const targetSizeInput = $("#target-size");
         const outputNameInput = $("#output-name");
+        const chooseFolderButton = $("#choose-folder-button");
+        const folderName = $("#folder-name");
         const preserveButton = $("#preserve-dimensions");
         const controlsPanel = document.querySelector(".controls");
         const resultsPanel = document.querySelector(".results");
@@ -915,6 +928,46 @@
           return `${baseName}${suffix}.${outputExtension(type)}`;
         }
 
+        async function getDownloadDirectory() {
+          if (!downloadDirectory) return null;
+          let permission = downloadDirectory.queryPermission
+            ? await downloadDirectory.queryPermission({ mode: "readwrite" })
+            : "granted";
+          if (permission !== "granted" && downloadDirectory.requestPermission) {
+            permission = await downloadDirectory.requestPermission({ mode: "readwrite" });
+          }
+          if (permission !== "granted") throw new Error("Permissão para gravar na pasta negada.");
+          return downloadDirectory;
+        }
+
+        async function saveToDownloadDirectory(directory, item, index) {
+          const type = item.outputType || outputTypeFor(item);
+          const outputName = outputNameFor(item, index, state.files.length, type);
+          item.outputName = outputName;
+          const fileHandle = await directory.getFileHandle(outputName, { create: true });
+          const writable = await fileHandle.createWritable();
+          try {
+            await writable.write(item.outputBlob);
+          } finally {
+            await writable.close();
+          }
+        }
+
+        async function chooseDownloadFolder() {
+          if (!window.showDirectoryPicker) {
+            showToast("Seu navegador não permite escolher uma pasta de download.");
+            return;
+          }
+          try {
+            downloadDirectory = await window.showDirectoryPicker({ mode: "readwrite" });
+            folderName.textContent = downloadDirectory.name;
+            chooseFolderButton.setAttribute("aria-label", `Pasta de download: ${downloadDirectory.name}`);
+            showToast(`Pasta selecionada: ${downloadDirectory.name}`);
+          } catch (error) {
+            if (error.name !== "AbortError") showToast("Não foi possível selecionar essa pasta.");
+          }
+        }
+
         function outputTypeFor(item) {
           if (outputFormat.value === "webp") return "image/webp";
           if (outputFormat.value === "jpeg") return "image/jpeg";
@@ -949,7 +1002,7 @@
           const rows = queue.querySelectorAll(".file-row");
           state.files.forEach((item, index) => {
             if (!item.outputBlob) return;
-            const outputName = outputNameFor(item, index, state.files.length, outputTypeFor(item));
+            const outputName = outputNameFor(item, index, state.files.length, item.outputType || outputTypeFor(item));
             item.outputName = outputName;
             const downloadLink = rows[index]?.querySelector("a.status.done");
             if (downloadLink) {
@@ -970,8 +1023,8 @@
             const statusLabel = item.status === "done" ? "Pronta" : item.status === "processing" ? "Comprimindo" : item.status === "error" ? "Erro" : "Aguardando";
             const statusClass = item.status === "done" ? "done" : item.status === "processing" ? "processing" : item.status === "error" ? "error" : "";
             const previewUrl = item.outputUrl || item.previewUrl;
-            const outputName = outputNameFor(item, index, state.files.length, outputTypeFor(item));
-            const action = item.outputBlob ? `<a class="status done" href="${item.outputUrl}" download="${escapeHtml(outputName)}" aria-label="Baixar ${escapeHtml(outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
+            const outputName = outputNameFor(item, index, state.files.length, item.outputType || outputTypeFor(item));
+            const action = item.outputBlob ? `<a class="status done" data-download="${item.id}" href="${item.outputUrl}" download="${escapeHtml(outputName)}" aria-label="Baixar ${escapeHtml(outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
             return `<article class="file-row" data-id="${item.id}">
               <div class="file-info">
                 <div class="file-preview ${item.status === "processing" ? "is-processing" : ""}"><img src="${previewUrl}" alt="Prévia de ${escapeHtml(item.name)}" /></div>
@@ -1027,6 +1080,7 @@
               outputUrl: null,
               outputBlob: null,
               outputName: null,
+              outputType: null,
               width: null,
               height: null,
               quality: null,
@@ -1150,6 +1204,7 @@
         async function compressItem(item, index, total) {
           item.status = "processing";
           item.outputBlob = null;
+          item.outputType = null;
           if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
           item.outputUrl = null;
           render();
@@ -1160,6 +1215,7 @@
           if (source.close) source.close();
           item.outputBlob = result.blob;
           item.outputUrl = URL.createObjectURL(result.blob);
+          item.outputType = type;
           item.quality = result.quality;
           item.width = Math.round(source.width);
           item.height = Math.round(source.height);
@@ -1208,24 +1264,55 @@
           render();
         }
 
+        function triggerBrowserDownload(item) {
+          const index = state.files.indexOf(item);
+          const link = document.createElement("a");
+          link.href = item.outputUrl;
+          link.download = outputNameFor(item, index, state.files.length, item.outputType || outputTypeFor(item));
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
+
+        async function downloadItem(item) {
+          const index = state.files.indexOf(item);
+          try {
+            const directory = await getDownloadDirectory();
+            if (directory) {
+              await saveToDownloadDirectory(directory, item, index);
+              showToast("Arquivo salvo na pasta escolhida.");
+              return;
+            }
+            triggerBrowserDownload(item);
+          } catch (error) {
+            showToast(error.message || "Não foi possível salvar o arquivo.");
+          }
+        }
+
         async function downloadAll() {
           const ready = state.files.filter((item) => item.outputBlob && item.outputUrl);
           if (!ready.length) return;
-          ready.forEach((item, index) => {
-            setTimeout(() => {
-              const link = document.createElement("a");
-              link.href = item.outputUrl;
-              link.download = outputNameFor(item, state.files.indexOf(item), state.files.length, outputTypeFor(item));
-              document.body.appendChild(link);
-              link.click();
-              link.remove();
-            }, index * 140);
-          });
-          showToast(`${ready.length} arquivo${ready.length > 1 ? "s" : ""} enviado${ready.length > 1 ? "s" : ""} para download.`);
+          try {
+            const directory = await getDownloadDirectory();
+            if (directory) {
+              for (const item of ready) {
+                await saveToDownloadDirectory(directory, item, state.files.indexOf(item));
+              }
+              showToast(`${ready.length} arquivo${ready.length > 1 ? "s" : ""} salvo${ready.length > 1 ? "s" : ""} na pasta escolhida.`);
+              return;
+            }
+            ready.forEach((item, index) => {
+              setTimeout(() => triggerBrowserDownload(item), index * 140);
+            });
+            showToast(`${ready.length} arquivo${ready.length > 1 ? "s" : ""} enviado${ready.length > 1 ? "s" : ""} para download.`);
+          } catch (error) {
+            showToast(error.message || "Não foi possível salvar os arquivos.");
+          }
         }
 
         fileInput.addEventListener("change", (event) => addFiles(event.target.files));
         $("#upload-button").addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
+        chooseFolderButton.addEventListener("click", chooseDownloadFolder);
         dropzone.addEventListener("click", () => fileInput.click());
         dropzone.addEventListener("keydown", (event) => {
           if (event.key === "Enter" || event.key === " ") { event.preventDefault(); fileInput.click(); }
@@ -1233,7 +1320,14 @@
         ["dragenter", "dragover"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => { event.preventDefault(); dropzone.classList.add("dragover"); }));
         ["dragleave", "drop"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => { event.preventDefault(); dropzone.classList.remove("dragover"); }));
         dropzone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
-        queue.addEventListener("click", (event) => {
+        queue.addEventListener("click", async (event) => {
+          const downloadLink = event.target.closest("[data-download]");
+          if (downloadLink && downloadDirectory) {
+            event.preventDefault();
+            const item = state.files.find((file) => file.id === downloadLink.dataset.download);
+            if (item) await downloadItem(item);
+            return;
+          }
           const removeButton = event.target.closest("[data-remove]");
           if (removeButton) removeItem(removeButton.dataset.remove);
         });
@@ -1304,24 +1398,3 @@
             description: "Read the current visible selection and compression results without changing them.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             annotations: { readOnlyHint: true, untrustedContentHint: false },
-            execute() {
-              const ready = state.files.filter((item) => item.status === "done");
-              const outputBytes = ready.reduce((sum, item) => sum + (item.outputBlob?.size || 0), 0);
-              const originalBytes = ready.reduce((sum, item) => sum + item.file.size, 0);
-              return { total: state.files.length, ready: ready.length, originalBytes, outputBytes, savingsPercent: originalBytes ? Math.round((1 - outputBytes / originalBytes) * 100) : 0 };
-            },
-          });
-          window.addEventListener("pagehide", () => lifecycle.abort(), { once: true });
-        }
-
-        window.addEventListener("beforeunload", () => state.files.forEach((item) => {
-          URL.revokeObjectURL(item.previewUrl);
-          if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
-        }));
-        window.addEventListener("resize", syncEmptyPanelHeight);
-
-        render();
-      })();
-    </script>
-  </body>
-</html>
