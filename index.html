@@ -478,7 +478,14 @@
 
       .file-text { min-width: 0; display: grid; gap: 6px; }
       .file-name { overflow: hidden; color: var(--ink); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-      .file-meta { color: var(--muted-2); font-size: 11px; }
+
+      .file-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
 
       .file-delta {
         display: grid;
@@ -525,6 +532,8 @@
         color: var(--muted-2);
         background: transparent;
       }
+
+      .file-actions .remove-file { margin-left: 0; }
 
       .remove-file:hover { color: var(--ink); background: var(--surface-3); }
 
@@ -665,6 +674,16 @@
       .panel { border-color: var(--line); border-radius: 20px; background: #080808; box-shadow: none; }
       .controls, .results { padding: 20px; }
       .results { display: flex; flex-direction: column; }
+      .results { gap: 12px; }
+      .queue { gap: 12px; }
+      .summary { margin-top: 0; }
+      .file-row {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .file-actions { min-width: 0; }
       .panel-heading { padding-bottom: 18px; }
       .step-index { border-color: var(--line-strong); color: var(--ink); }
       .input-shell, select { border-color: var(--line); background-color: var(--surface-2); }
@@ -719,6 +738,9 @@
         .app-shell { width: min(100% - 24px, 1160px); padding: 12px 0; }
         .controls, .results { padding: 14px; }
         .dropzone { min-height: 300px; }
+        .file-actions { grid-column: 2; grid-row: 2; align-self: end; }
+        .file-row > .remove-file { grid-column: auto; grid-row: auto; }
+        .status { grid-column: auto; grid-row: auto; align-self: auto; }
       }
     </style>
   </head>
@@ -899,7 +921,7 @@
 
         function render() {
           const hasFiles = state.files.length > 0;
-          dropzone.hidden = hasFiles;
+          dropzone.hidden = false;
           queue.innerHTML = state.files.map((item) => {
             const savings = item.outputBlob ? ((1 - item.outputBlob.size / item.file.size) * 100) : 0;
             const sizeLine = item.outputBlob
@@ -912,11 +934,13 @@
             return `<article class="file-row" data-id="${item.id}">
               <div class="file-info">
                 <div class="file-preview ${item.status === "processing" ? "is-processing" : ""}"><img src="${previewUrl}" alt="Prévia de ${escapeHtml(item.name)}" /></div>
-                <div class="file-text"><span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span><span class="file-meta">${item.width ? `${item.width} × ${item.height} px` : "Lendo imagem…"}${item.quality ? ` · qualidade ${Math.round(item.quality * 100)}%` : ""}</span></div>
+                <div class="file-text"><span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span></div>
               </div>
               <div class="file-delta">${sizeLine}</div>
-              ${action}
-              <button class="remove-file" type="button" data-remove="${item.id}" aria-label="Remover ${escapeHtml(item.name)}">${icon.x}</button>
+              <div class="file-actions">
+                ${action}
+                <button class="remove-file" type="button" data-remove="${item.id}" aria-label="Remover ${escapeHtml(item.name)}">${icon.x}</button>
+              </div>
             </article>`;
           }).join("");
 
