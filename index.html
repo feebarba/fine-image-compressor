@@ -334,7 +334,7 @@
 
       .privacy-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--lime); }
 
-      .primary-button, .secondary-button, .upload-button {
+      .primary-button, .secondary-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -353,7 +353,7 @@
         background: var(--lime);
       }
 
-      .primary-button:hover:not(:disabled), .upload-button:hover { transform: translateY(-1px); background: #d7fb85; }
+      .primary-button:hover:not(:disabled) { transform: translateY(-1px); background: #d7fb85; }
       .primary-button:disabled { opacity: 0.38; }
 
       .secondary-button {
@@ -419,7 +419,6 @@
         display: grid;
         width: 62px;
         height: 62px;
-        margin-bottom: 19px;
         place-items: center;
         border: 1px solid rgba(200, 240, 107, 0.32);
         border-radius: 18px;
@@ -430,7 +429,6 @@
       .dropzone h3 { margin-bottom: 8px; font-size: 21px; letter-spacing: -0.055em; }
       .dropzone p { margin-bottom: 20px; color: var(--muted); font-size: 13px; line-height: 1.5; }
 
-      .upload-button { padding: 0 17px; color: #18210e; background: var(--lime); }
       .drop-meta { margin-top: 14px; color: var(--muted-2); font-size: 11px; }
 
       #file-input { display: none; }
@@ -690,12 +688,12 @@
       .input-shell:focus-within, select:focus { border-color: var(--ink); background-color: var(--surface-3); }
       .privacy-note { border-color: var(--line); color: var(--muted); background: #101010; }
       .privacy-note svg, .bottom-note svg { color: var(--ink); }
-      .primary-button, .secondary-button, .upload-button {
+      .primary-button, .secondary-button {
         border-color: #ffffff;
         color: #000000;
         background: #ffffff;
       }
-      .primary-button:hover:not(:disabled), .upload-button:hover { background: #e7e7e7; }
+      .primary-button:hover:not(:disabled) { background: #e7e7e7; }
       .secondary-button:hover:not(:disabled) { border-color: #ffffff; color: #000000; background: #e7e7e7; }
       .secondary-button:disabled { color: #555555; border-color: #252525; background: #111111; }
       .dropzone {
@@ -705,7 +703,15 @@
         background: #080808;
       }
       .dropzone.dragover, .dropzone:focus-visible { border-color: #ffffff; background-color: #111111; }
-      .upload-icon { border-color: var(--line-strong); color: #ffffff; background: #101010; }
+      .upload-icon {
+        border-color: var(--line-strong);
+        color: #ffffff;
+        background: #101010;
+        margin: 0;
+        cursor: pointer;
+      }
+      .upload-icon:hover { border-color: #ffffff; background: #191919; transform: translateY(-1px); }
+      .upload-icon:focus-visible { outline: 2px solid #ffffff; outline-offset: 4px; }
       .file-row, .summary-card { border-color: var(--line); background: #080808; }
       .status.done { border-color: var(--line-strong); color: #ffffff; background: #151515; }
       .status.processing { color: #d7d7d7; border-color: var(--line-strong); background: #151515; }
@@ -772,6 +778,13 @@
               </select>
             </div>
 
+            <div class="field">
+              <label for="output-name">Nome do arquivo</label>
+              <div class="input-shell">
+                <input id="output-name" type="text" placeholder="Foto" maxlength="80" autocomplete="off" />
+              </div>
+            </div>
+
             <div class="switch-row">
               <div class="switch-copy">
                 <strong>Preservar dimensões</strong>
@@ -802,12 +815,8 @@
 
           <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Adicionar imagens">
             <div class="drop-content">
-              <div class="upload-icon" aria-hidden="true">
+              <button class="upload-icon" id="upload-button" type="button" aria-label="Escolher imagens">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/><path d="M5 16v4M19 16v4"/></svg>
-              </div>
-              <button class="upload-button" id="upload-button" type="button">
-                Escolher imagens
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
               </button>
             </div>
           </div>
@@ -853,6 +862,7 @@
         const statusMessage = $("#status-message");
         const outputFormat = $("#output-format");
         const targetSizeInput = $("#target-size");
+        const outputNameInput = $("#output-name");
         const preserveButton = $("#preserve-dimensions");
         const controlsPanel = document.querySelector(".controls");
         const resultsPanel = document.querySelector(".results");
@@ -889,6 +899,22 @@
           return type === "image/webp" ? "webp" : "jpg";
         }
 
+        function safeFileName(value) {
+          return String(value || "")
+            .replace(/[\u0000-\u001f<>:"/\\|?*]/g, "")
+            .replace(/\s+/g, " ")
+            .replace(/^[.\s]+|[.\s]+$/g, "")
+            .slice(0, 80);
+        }
+
+        function outputNameFor(item, index, total, type) {
+          const customName = outputNameInput.value.trim();
+          const originalName = item.name.replace(/\.[^/.]+$/, "");
+          const baseName = safeFileName(customName || originalName) || "Foto";
+          const suffix = customName && total > 1 ? `-${String(index + 1).padStart(2, "0")}` : "";
+          return `${baseName}${suffix}.${outputExtension(type)}`;
+        }
+
         function outputTypeFor(item) {
           if (outputFormat.value === "webp") return "image/webp";
           if (outputFormat.value === "jpeg") return "image/jpeg";
@@ -922,7 +948,7 @@
         function render() {
           const hasFiles = state.files.length > 0;
           dropzone.hidden = false;
-          queue.innerHTML = state.files.map((item) => {
+          queue.innerHTML = state.files.map((item, index) => {
             const savings = item.outputBlob ? ((1 - item.outputBlob.size / item.file.size) * 100) : 0;
             const sizeLine = item.outputBlob
               ? `<span class="size-line"><span>${formatBytes(item.file.size)}</span><span class="size-arrow">→</span><strong>${formatBytes(item.outputBlob.size)}</strong></span><span class="saving ${savings < 0 ? "warning" : ""}">${savings >= 0 ? `−${formatPercent(savings)} de peso` : `+${formatPercent(Math.abs(savings))} de peso`}</span>`
@@ -930,7 +956,8 @@
             const statusLabel = item.status === "done" ? "Pronta" : item.status === "processing" ? "Comprimindo" : item.status === "error" ? "Erro" : "Aguardando";
             const statusClass = item.status === "done" ? "done" : item.status === "processing" ? "processing" : item.status === "error" ? "error" : "";
             const previewUrl = item.outputUrl || item.previewUrl;
-            const action = item.outputBlob ? `<a class="status done" href="${item.outputUrl}" download="${escapeHtml(item.outputName)}" aria-label="Baixar ${escapeHtml(item.outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
+            const outputName = outputNameFor(item, index, state.files.length, outputTypeFor(item));
+            const action = item.outputBlob ? `<a class="status done" href="${item.outputUrl}" download="${escapeHtml(outputName)}" aria-label="Baixar ${escapeHtml(outputName)}">${icon.download} Baixar</a>` : `<span class="status ${statusClass}">${statusLabel}</span>`;
             return `<article class="file-row" data-id="${item.id}">
               <div class="file-info">
                 <div class="file-preview ${item.status === "processing" ? "is-processing" : ""}"><img src="${previewUrl}" alt="Prévia de ${escapeHtml(item.name)}" /></div>
@@ -1106,7 +1133,7 @@
           return best;
         }
 
-        async function compressItem(item) {
+        async function compressItem(item, index, total) {
           item.status = "processing";
           item.outputBlob = null;
           if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
@@ -1122,7 +1149,7 @@
           item.quality = result.quality;
           item.width = Math.round(source.width);
           item.height = Math.round(source.height);
-          item.outputName = `${item.name.replace(/\.[^/.]+$/, "")}.compressed.${outputExtension(type)}`;
+          item.outputName = outputNameFor(item, index, total, type);
           item.status = result.blob.size <= targetMB * 1024 * 1024 ? "done" : "error";
           item.settingsKey = currentSettingsKey();
           if (item.status === "error") throw new Error("Não foi possível chegar ao limite definido.");
@@ -1136,7 +1163,7 @@
             const item = state.files[index];
             statusMessage.textContent = `Comprimindo ${index + 1} de ${state.files.length}`;
             try {
-              await compressItem(item);
+              await compressItem(item, index, state.files.length);
             } catch (error) {
               item.status = "error";
               item.error = error.message;
@@ -1174,7 +1201,7 @@
             setTimeout(() => {
               const link = document.createElement("a");
               link.href = item.outputUrl;
-              link.download = item.outputName;
+              link.download = outputNameFor(item, state.files.indexOf(item), state.files.length, outputTypeFor(item));
               document.body.appendChild(link);
               link.click();
               link.remove();
@@ -1205,6 +1232,7 @@
           render();
         });
         [targetSizeInput, outputFormat].forEach((control) => control.addEventListener("change", updateControls));
+        outputNameInput.addEventListener("input", render);
 
         // Optional WebMCP surface: the same visible actions can be controlled by an AI agent when supported.
         if (document.modelContext?.registerTool) {
