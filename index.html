@@ -945,6 +945,20 @@
           }
         }
 
+        function updateOutputNames() {
+          const rows = queue.querySelectorAll(".file-row");
+          state.files.forEach((item, index) => {
+            if (!item.outputBlob) return;
+            const outputName = outputNameFor(item, index, state.files.length, outputTypeFor(item));
+            item.outputName = outputName;
+            const downloadLink = rows[index]?.querySelector("a.status.done");
+            if (downloadLink) {
+              downloadLink.download = outputName;
+              downloadLink.setAttribute("aria-label", `Baixar ${outputName}`);
+            }
+          });
+        }
+
         function render() {
           const hasFiles = state.files.length > 0;
           dropzone.hidden = false;
@@ -1232,7 +1246,7 @@
           render();
         });
         [targetSizeInput, outputFormat].forEach((control) => control.addEventListener("change", updateControls));
-        outputNameInput.addEventListener("input", render);
+        outputNameInput.addEventListener("input", updateOutputNames);
 
         // Optional WebMCP surface: the same visible actions can be controlled by an AI agent when supported.
         if (document.modelContext?.registerTool) {
