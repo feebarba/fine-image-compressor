@@ -782,6 +782,16 @@
             </div>
 
             <div class="field">
+              <label for="resize-scale">Redimensionar imagem</label>
+              <select id="resize-scale">
+                <option value="1">100% — original</option>
+                <option value="0.75">75%</option>
+                <option value="0.5">50%</option>
+                <option value="0.25">25%</option>
+              </select>
+            </div>
+
+            <div class="field">
               <label for="output-name">Nome do arquivo</label>
               <div class="input-shell">
                 <input id="output-name" type="text" placeholder="Foto" maxlength="80" autocomplete="off" />
@@ -874,6 +884,7 @@
         const downloadAllButton = $("#download-all-button");
         const statusMessage = $("#status-message");
         const outputFormat = $("#output-format");
+        const resizeScaleInput = $("#resize-scale");
         const targetSizeInput = $("#target-size");
         const outputNameInput = $("#output-name");
         const chooseFolderButton = $("#choose-folder-button");
@@ -1024,7 +1035,12 @@
 
         function currentSettingsKey() {
           const requested = Math.min(10, Math.max(0.2, Number(targetSizeInput.value) || 2));
-          return `${requested}|${outputFormat.value}|${state.preserveDimensions}`;
+          return `${requested}|${outputFormat.value}|${resizeScaleInput.value}|${state.preserveDimensions}`;
+        }
+
+        function selectedResizeScale() {
+          const scale = Number(resizeScaleInput.value);
+          return [1, 0.75, 0.5, 0.25].includes(scale) ? scale : 1;
         }
 
         function syncEmptyPanelHeight() {
@@ -1168,9 +1184,9 @@
           return canvasBlob(canvas, type, quality);
         }
 
-        async function findBestEncode(source, sourceWidth, sourceHeight, type, limitBytes, preserveDimensions) {
-          let width = sourceWidth;
-          let height = sourceHeight;
+        async function findBestEncode(source, sourceWidth, sourceHeight, type, limitBytes, preserveDimensions, resizeScale) {
+          let width = sourceWidth * resizeScale;
+          let height = sourceHeight * resizeScale;
           const edgeScale = Math.min(1, MAX_EDGE / Math.max(width, height));
           width *= edgeScale;
           height *= edgeScale;
@@ -1239,7 +1255,7 @@
           const source = await decodeImage(item.file);
           const type = outputTypeFor(item);
           const targetMB = Math.min(10, Math.max(0.2, Number(targetSizeInput.value) || 2));
-          const result = await findBestEncode(source, source.width, source.height, type, targetMB * 1024 * 1024, state.preserveDimensions);
+          const result = await findBestEncode(source, source.width, source.height, type, targetMB * 1024 * 1024, state.preserveDimensions, selectedResizeScale());
           if (source.close) source.close();
           item.outputBlob = result.blob;
           item.outputUrl = URL.createObjectURL(result.blob);
@@ -1371,7 +1387,7 @@
           preserveButton.setAttribute("aria-checked", String(state.preserveDimensions));
           render();
         });
-        [targetSizeInput, outputFormat].forEach((control) => control.addEventListener("change", updateControls));
+        [targetSizeInput, outputFormat, resizeScaleInput].forEach((control) => control.addEventListener("change", updateControls));
         outputNameInput.addEventListener("input", updateOutputNames);
 
         // Optional WebMCP surface: the same visible actions can be controlled by an AI agent when supported.
@@ -1387,6 +1403,7 @@
               properties: {
                 targetSizeMB: { type: "number", minimum: 0.2, maximum: 10 },
                 format: { type: "string", enum: ["auto", "jpeg", "webp"] },
+                resizeScale: { type: "number", enum: [1, 0.75, 0.5, 0.25] },
                 preserveDimensions: { type: "boolean" },
               },
               additionalProperties: false,
@@ -1403,12 +1420,17 @@
                 if (!["auto", "jpeg", "webp"].includes(input.format)) throw new Error("Formato inválido.");
                 outputFormat.value = input.format;
               }
+              if (input.resizeScale !== undefined) {
+                const value = Number(input.resizeScale);
+                if (![1, 0.75, 0.5, 0.25].includes(value)) throw new Error("Proporção de redimensionamento inválida.");
+                resizeScaleInput.value = String(value);
+              }
               if (input.preserveDimensions !== undefined) {
                 state.preserveDimensions = Boolean(input.preserveDimensions);
                 preserveButton.setAttribute("aria-checked", String(state.preserveDimensions));
               }
               render();
-              return { status: "configured", targetSizeMB: Number(targetSizeInput.value), format: outputFormat.value, preserveDimensions: state.preserveDimensions };
+              return { status: "configured", targetSizeMB: Number(targetSizeInput.value), format: outputFormat.value, resizeScale: selectedResizeScale(), preserveDimensions: state.preserveDimensions };
             },
           });
           registerTool({
